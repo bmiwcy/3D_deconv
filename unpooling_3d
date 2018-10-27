@@ -1,0 +1,71 @@
+def unpooling_3d(x, ksize, strides):
+    img_depth = tf.shape(x[0,:,0,0,0]).eval()[0]
+    img_heith = tf.shape(x[0,0,:,0,0]).eval()[0]
+    img_width = tf.shape(x[0,0,0,:,0]).eval()[0]
+    
+    sparse_matrix = []
+    
+    num_loop = -1
+    total_loop = img_depth//3
+    
+    for i in range(img_depth//3):
+        
+        num_loop = num_loop + 1
+        # calculate argmax for each depth
+        D_0 = tf.reshape(x[:,0+i*3,:,:,:],[1, img_heith, img_width, 1])
+        output_0, argmax_0 = tf.nn.max_pool_with_argmax(D_0, ksize=ksize, strides=strides, padding='VALID')
+        D_0 = tf.reshape(D_0, [tf.size(D_0).eval()]).eval()
+        argmax_0 = tf.reshape(argmax_0,[tf.size(argmax_0).eval()]).eval()
+        
+        D_1 = tf.reshape(x[:,1+i*3,:,:,:],[1, img_heith, img_width, 1])
+        output_1, argmax_1 = tf.nn.max_pool_with_argmax(D_1, ksize=ksize, strides=strides, padding='VALID')
+        D_1 = tf.reshape(D_1, [tf.size(D_1).eval()]).eval()
+        argmax_1 = tf.reshape(argmax_1,[tf.size(argmax_1).eval()]).eval()
+        
+        D_2 = tf.reshape(x[:,2+i*3,:,:,:],[1, img_heith, img_width, 1])
+        output_2, argmax_2 = tf.nn.max_pool_with_argmax(D_2, ksize=ksize, strides=strides, padding='VALID')
+        D_2 = tf.reshape(D_2, [tf.size(D_2).eval()]).eval()
+        argmax_2 = tf.reshape(argmax_2,[tf.size(argmax_2).eval()]).eval()
+        
+        # argmax_map in 3d
+        argmax_map_3d = []
+        
+        # get size of argmax and img
+        argmax_size = len(argmax_0)
+        img_size = img_heith * img_width
+        
+        # calculate the argmax_map_3d
+        for j in range(argmax_size):
+            if D_0[argmax_0[j]] >= D_1[argmax_1[j]]:
+                max_value = D_0[argmax_0[j]]
+                max_argmax = argmax_0[j] + img_size*0
+            else:
+                max_value = D_1[argmax_1[j]]
+                max_argmax = argmax_1[j] + img_size*1
+                
+            if D_2[argmax_2[j]] > max_value:
+                max_value = D_2[argmax_2[j]]
+                max_argmax = argmax_2[j] + img_size*2
+        
+            argmax_map_3d.append(max_argmax)
+           
+        # get one-D img list
+        img_value = x[:,0+i*3:3+i*3,:,:,:].eval()
+        img_size = tf.size(x[:,0+i*3:3+i*3,:,:,:]).eval()  
+        img_value = np.array(img_value).reshape((img_size))
+    
+        argmax_map_3d.sort()
+        argmax_range = len(argmax_map_3d)
+        go_next = 0
+        for i in range(len(img_value)):
+            if (go_next < argmax_range) and (i == argmax_map_3d[go_next] ):
+                sparse_matrix.append(img_value[argmax_map_3d[go_next]])
+                go_next = go_next + 1
+            else:
+                sparse_matrix.append(0)
+                
+        print("Unpooling steps:", num_loop+1,"/",total_loop, "done...")
+                
+    sparse_matrix = np.array(sparse_matrix).reshape((3+num_loop*3, img_heith, img_width))
+    print(sparse_matrix)
+    print(len(sparse_matrix))
