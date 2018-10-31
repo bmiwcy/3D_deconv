@@ -1,3 +1,7 @@
+def zerolistmaker(n):
+    listofzeros = [0] * n
+    return listofzeros
+
 def deConv(num_neuron,original_shape=[1,50,50,50,1],\
            W_conv1=np.array([]),W_conv2=np.array([]),W_conv3=np.array([]),\
            before_pool1=np.array([]),after_pool1=np.array([]),\
