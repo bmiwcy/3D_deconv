@@ -1,0 +1,81 @@
+def deConv(num_neuron,original_shape=[1,50,50,50,1],\
+           W_conv1=np.array([]),W_conv2=np.array([]),W_conv3=np.array([]),\
+           before_pool1=np.array([]),after_pool1=np.array([]),\
+           before_pool2=np.array([]),after_pool2=np.array([]),\
+           before_pool3=np.array([]),after_pool3=np.array([])):
+    if before_pool3.size != 0:
+        x = before_pool3
+        y = after_pool3
+        W = W_conv3
+    elif  before_pool2.size != 0:
+        x = before_pool2
+        y = after_pool2
+        W = W_conv2
+    else:
+        x = before_pool1
+        y = after_pool1
+        W = W_conv1
+    img_depth = x[0,:,0,0,0].shape[0]
+    img_height = x[0,0,:,0,0].shape[0]
+    img_width = x[0,0,0,:,0].shape[0]   
+    after_depth = y[0,:,0,0,0].shape[0]
+    after_height = y[0,0,:,0,0].shape[0]
+    after_width = y[0,0,0,:,0].shape[0] 
+    output_channel = x[0,0,0,0,:].shape[0]  
+    
+    if output_channel == 32:
+        layer = 1
+        output_shape = [1, 50, 50, 50, 1]
+    if output_channel == 64:
+        layer = 2
+        output_shape = [1, img_depth, img_height, img_width, int(output_channel/2)]
+    if output_channel == 128:
+        layer = 3
+        output_shape = [1, img_depth, img_height, img_width, int(output_channel/2)]
+        
+    # deconving 
+    before_conv = []
+    if num_neuron != -1:            
+        needed_neuron = x[:,:,:,:,num_neuron].reshape((1, img_depth, img_height, img_width, 1))  
+        pooled_neuron = y[:,:,:,:,num_neuron].reshape((1, after_depth, after_height, after_width, 1))  
+        needed_neuron = unpooling_3d(needed_neuron, pooled_neuron, [1,2,2,1], [1,2,2,1])   # get the needed unpool result
+        needed_neuron = needed_neuron.reshape((img_depth * img_height * img_width))
+        needed_neuron = needed_neuron.tolist()        
+        for i in range(output_channel):
+            if (i == num_neuron):
+                before_conv.extend(needed_neuron)
+            else:
+                zeros = zerolistmaker(img_depth * img_height * img_width)
+                before_conv.extend(zeros)
+    else:
+        for i in range(output_channel):
+            before_pool = x[:,:,:,:,i].reshape((1, img_depth, img_height, img_width, 1))  
+            after_pool = y[:,:,:,:,i].reshape((1, after_depth, after_height, after_width, 1)) 
+            unpooled_neuron = unpooling_3d(before_pool, after_pool, [1,2,2,1], [1,2,2,1])
+            unpooled_neuron = unpooled_neuron.reshape((img_depth * img_height * img_width))
+            unpooled_neuron = unpooled_neuron.tolist()  
+            before_conv.extend(unpooled_neuron)
+            print("layer",layer,"channel",i,"/",output_channel-1,"complete...")
+            print("--------------------------------")
+            
+            
+    before_conv = np.array(before_conv).reshape((1, img_depth, img_height, img_width, output_channel))
+    before_conv = tf.convert_to_tensor(before_conv, dtype=tf.float32)
+    before_conv = tf.nn.relu(before_conv)
+    deconv_result = tf.nn.conv3d_transpose(before_conv, W, output_shape, [1,1,1,1,1], padding='SAME').eval()
+    print("deconv_result shape", deconv_result.shape)
+    print("deconv_result size", deconv_result.size)
+        
+    if layer == 3:
+        deConv(-1,W_conv1=W_conv1,W_conv2=W_conv2,before_pool1=before_pool1,before_pool2=before_pool2, after_pool2=deconv_result)
+    if layer == 2:
+        deConv(-1,W_conv1=W_conv1,before_pool1=before_pool1, after_pool1=deconv_result)
+    if layer == 1:
+        print("reach in fisrt layer!!")
+        deconv_result = deconv_result.reshape((50,50,50))    
+        Output = '/home/user/data/visualizing/layer3-neuron_{}/'.format(num_neuron)
+        if not os.path.exists(Output):
+            os.mkdir(Output) 
+        for i in range(deconv_result.shape[0]):
+            cv2.imwrite(Output + '{}.png'.format(i), deconv_result[i]) 
+        print("images saved!")
