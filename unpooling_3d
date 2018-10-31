@@ -1,71 +1,84 @@
-def unpooling_3d(x, ksize, strides):
-    img_depth = tf.shape(x[0,:,0,0,0]).eval()[0]
-    img_heith = tf.shape(x[0,0,:,0,0]).eval()[0]
-    img_width = tf.shape(x[0,0,0,:,0]).eval()[0]
+def unpooling_3d(before_pool, after_pool, ksize, strides):
+    after_pool = after_pool.reshape((after_pool.size))
+    img_depth = before_pool[0,:,0,0,0].shape[0]
+    img_height = before_pool[0,0,:,0,0].shape[0]
+    img_width = before_pool[0,0,0,:,0].shape[0]
     
     sparse_matrix = []
-    
+    value_go_next = 0
+    stride_depth = strides[2]
+  
     num_loop = -1
-    total_loop = img_depth//3
+    total_loop = img_depth//stride_depth
     
-    for i in range(img_depth//3):
-        
+    for i in range(total_loop):
         num_loop = num_loop + 1
         # calculate argmax for each depth
-        D_0 = tf.reshape(x[:,0+i*3,:,:,:],[1, img_heith, img_width, 1])
-        output_0, argmax_0 = tf.nn.max_pool_with_argmax(D_0, ksize=ksize, strides=strides, padding='VALID')
-        D_0 = tf.reshape(D_0, [tf.size(D_0).eval()]).eval()
-        argmax_0 = tf.reshape(argmax_0,[tf.size(argmax_0).eval()]).eval()
+        D_0 = before_pool[:,0+i*stride_depth,:,:,:].reshape((1, img_height, img_width, 1))
+        D_0 = tf.convert_to_tensor(D_0)
+        output_0, argmax_0 = tf.nn.max_pool_with_argmax(D_0, ksize=ksize, strides=strides, padding='SAME')
+        output_0 = output_0.eval()
+        output_0 = output_0.reshape((output_0.size))
+        argmax_0 = argmax_0.eval()
+        argmax_0 = argmax_0.reshape((argmax_0.size))
         
-        D_1 = tf.reshape(x[:,1+i*3,:,:,:],[1, img_heith, img_width, 1])
-        output_1, argmax_1 = tf.nn.max_pool_with_argmax(D_1, ksize=ksize, strides=strides, padding='VALID')
-        D_1 = tf.reshape(D_1, [tf.size(D_1).eval()]).eval()
-        argmax_1 = tf.reshape(argmax_1,[tf.size(argmax_1).eval()]).eval()
-        
-        D_2 = tf.reshape(x[:,2+i*3,:,:,:],[1, img_heith, img_width, 1])
-        output_2, argmax_2 = tf.nn.max_pool_with_argmax(D_2, ksize=ksize, strides=strides, padding='VALID')
-        D_2 = tf.reshape(D_2, [tf.size(D_2).eval()]).eval()
-        argmax_2 = tf.reshape(argmax_2,[tf.size(argmax_2).eval()]).eval()
-        
+        D_1 = before_pool[:,1+i*stride_depth,:,:,:].reshape((1, img_height, img_width, 1))
+        D_1 = tf.convert_to_tensor(D_1)
+        output_1, argmax_1 = tf.nn.max_pool_with_argmax(D_1, ksize=ksize, strides=strides, padding='SAME')
+        output_1 = output_1.eval()
+        output_1 = output_1.reshape((output_0.size))
+        argmax_1 = argmax_1.eval()
+        argmax_1 = argmax_1.reshape((argmax_0.size))
+             
         # argmax_map in 3d
         argmax_map_3d = []
         
         # get size of argmax and img
-        argmax_size = len(argmax_0)
-        img_size = img_heith * img_width
+        argmax_size = argmax_0.size        
+        img_size = img_height * img_width
         
         # calculate the argmax_map_3d
         for j in range(argmax_size):
-            if D_0[argmax_0[j]] >= D_1[argmax_1[j]]:
-                max_value = D_0[argmax_0[j]]
-                max_argmax = argmax_0[j] + img_size*0
+            if output_0[j] >= output_1[j]:
+                max_index = argmax_0[j] + img_size*0
             else:
-                max_value = D_1[argmax_1[j]]
-                max_argmax = argmax_1[j] + img_size*1
-                
-            if D_2[argmax_2[j]] > max_value:
-                max_value = D_2[argmax_2[j]]
-                max_argmax = argmax_2[j] + img_size*2
-        
-            argmax_map_3d.append(max_argmax)
-           
-        # get one-D img list
-        img_value = x[:,0+i*3:3+i*3,:,:,:].eval()
-        img_size = tf.size(x[:,0+i*3:3+i*3,:,:,:]).eval()  
-        img_value = np.array(img_value).reshape((img_size))
+                max_index = argmax_1[j] + img_size*1   
+            argmax_map_3d.append([max_index, after_pool[value_go_next]]) 
+            value_go_next = value_go_next + 1
+        argmax_map_3d.sort(key=takeFirst)        
+
+        # get one-D img list size
+        img_size = before_pool[:,0+i*stride_depth:2+i*stride_depth,:,:,:].size
     
         argmax_map_3d.sort()
         argmax_range = len(argmax_map_3d)
-        go_next = 0
-        for i in range(len(img_value)):
-            if (go_next < argmax_range) and (i == argmax_map_3d[go_next] ):
-                sparse_matrix.append(img_value[argmax_map_3d[go_next]])
-                go_next = go_next + 1
+        map_go_next = 0
+        for i in range(img_size):
+            if (map_go_next < argmax_range) and (i == argmax_map_3d[map_go_next][0] ):
+                sparse_matrix.append(argmax_map_3d[map_go_next][1])
+                map_go_next = map_go_next + 1
             else:
                 sparse_matrix.append(0)
                 
         print("Unpooling steps:", num_loop+1,"/",total_loop, "done...")
-                
-    sparse_matrix = np.array(sparse_matrix).reshape((3+num_loop*3, img_heith, img_width))
-    print(sparse_matrix)
-    print(len(sparse_matrix))
+    
+    if value_go_next < after_pool.size:
+        tmp_map = []
+        go_next = 0
+        tmp_matrix = tf.reshape(before_pool[:,-1,:,:,:],[1, img_height, img_width, 1])
+        _, argmax_2 = tf.nn.max_pool_with_argmax(tmp_matrix, ksize=ksize, strides=strides, padding='SAME')
+        argmax_2 = argmax_2.eval()
+        argmax_2 = argmax_2.reshape((argmax_2.size))
+        for i in range(argmax_size):
+            tmp_map.append([argmax_2[i],after_pool[value_go_next]])
+            value_go_next = value_go_next + 1
+        tmp_map.sort(key=takeFirst)
+        for i in range(img_height*img_width):
+            if (go_next < argmax_range) and (i == tmp_map[go_next][0]):
+                sparse_matrix.append(tmp_map[go_next][1])
+                go_next = go_next + 1
+            else:
+                sparse_matrix.append(0)    
+    print("--------------------------------")
+    sparse_matrix = np.array(sparse_matrix).reshape((img_depth, img_height, img_width))
+    return sparse_matrix
